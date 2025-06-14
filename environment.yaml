@@ -12,4 +12,5 @@ dependencies:
       - faiss-cpu
       - tiktoken
       - tqdm
+      - streamlit
       - python-dotenv
