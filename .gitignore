@@ -192,3 +192,9 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# env file where API keys are kept
+.env
+# Zotero library file or symlinks and database files
+library.bib
+zotero.index
+zotero_meta.pkl
