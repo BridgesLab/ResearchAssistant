@@ -1,5 +1,5 @@
 # ResearchAssistant
-Research assistant for querying a local library and pubmed and returning research questions
+Research assistant for querying a local library and returning research questions
 
 This an AI-powered literature assistant that lets you interrogate your own Zotero library using GPT-4.  
 It uses OpenAI’s `text-embedding-3-large` to index your `.bib` file and enables natural language queries with GPT-based summarization and synthesis.
@@ -48,7 +48,7 @@ ln -s /path/to/your/library.bib ./library.bib
 ### 3. Set up the environment
 
 ```bash
-conda env create -f environment.yml
+conda env create -f environment.yaml
 conda activate research-assistant
 ```
 
