@@ -11,6 +11,8 @@ dependencies:
       - bibtexparser
       - faiss-cpu
       - tiktoken
+      - openai>=1.0.0
       - tqdm
       - streamlit
       - python-dotenv
+      - watchdog
