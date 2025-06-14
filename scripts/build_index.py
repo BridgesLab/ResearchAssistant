@@ -1,73 +1,82 @@
 import os
 import pickle
 import faiss
+import bibtexparser
 import numpy as np
-import openai
 from tqdm import tqdm
-from bibtexparser.bparser import BibTexParser
-from bibtexparser.customization import homogenize_latex_encoding
+from pathlib import Path
 from dotenv import load_dotenv
+from openai import OpenAIError, OpenAI
+import tiktoken
 
-load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Set up paths
+ROOT = Path(__file__).resolve().parents[1]
+BIB_PATH = ROOT / "library.bib"
+INDEX_PATH = ROOT / "zotero.index"
+META_PATH = ROOT / "zotero_meta.pkl"
+ENV_PATH = ROOT / ".env"
 
-# Load BibTeX entries
-def load_bibtex_entries(bib_path):
-    with open(bib_path, 'r') as f:
-        parser = BibTexParser()
-        parser.customization = homogenize_latex_encoding
-        bib_database = parser.parse_file(f)
-    return bib_database.entries
+# Load OpenAI key
+load_dotenv(dotenv_path=ENV_PATH)
+openai_api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=openai_api_key)
 
-# Format title/abstract for embedding
-def format_entry_for_embedding(entry):
-    title = entry.get("title", "")
-    abstract = entry.get("abstract", "")
-    authors = entry.get("author", "")
-    year = entry.get("year", "")
-    return f"Title: {title}\nAuthors: {authors}\nYear: {year}\nAbstract: {abstract}"
+# Tokenizer setup
+ENC = tiktoken.encoding_for_model("text-embedding-3-large")
 
-# Get OpenAI embedding
-def get_embedding(text, model="text-embedding-3-large"):
-    response = openai.embeddings.create(input=[text], model=model)
-    return response.data[0].embedding
+def safe_truncate(text, max_tokens=6000):
+    tokens = ENC.encode(text)
+    if len(tokens) <= max_tokens:
+        return text
+    return ENC.decode(tokens[:max_tokens])
+
+def get_embedding(text):
+    resp = client.embeddings.create(
+        input=[text],
+        model="text-embedding-3-large"
+    )
+    return resp.data[0].embedding
+
+# Read BibTeX and extract entries
+with open(BIB_PATH, "r") as bibfile:
+    bib_db = bibtexparser.load(bibfile)
+
+entries = bib_db.entries
+print(f"Loaded {len(entries)} entries from library.bib")
 
 # Build FAISS index
-def build_faiss_index(entries):
-    dim = 3072  # text-embedding-3-large
-    index = faiss.IndexFlatL2(dim)
-    metadata = []
+dim = 3072  # Dimension for text-embedding-3-large
+index = faiss.IndexFlatL2(dim)
+metadata = []
 
-    for entry in tqdm(entries):
-        text = format_entry_for_embedding(entry)
-        embedding = get_embedding(text)
-        index.add(np.array([embedding], dtype=np.float32))
-        metadata.append({
-            "id": entry.get("ID", ""),
-            "title": entry.get("title", ""),
-            "authors": entry.get("author", ""),
-            "year": entry.get("year", ""),
-            "raw": text
-        })
+for entry in tqdm(entries, desc="Embedding entries"):
+    title = entry.get("title", "Unknown Title").strip()
+    year = entry.get("year", "Unknown Year")
+    authors = entry.get("author", "Unknown Author")
+    abstract = entry.get("abstract", "")
+    note = entry.get("note", "")
 
-    return index, metadata
+    raw = f"Title: {title}\nAuthors: {authors}\nYear: {year}\nAbstract: {abstract}\nNotes: {note}"
+    truncated = safe_truncate(raw)
 
-if __name__ == "__main__":
-    bib_path = os.path.join(os.path.dirname(__file__), "..", "library.bib")
-    index_path = os.path.join(os.path.dirname(__file__), "..", "zotero.index")
-    meta_path = os.path.join(os.path.dirname(__file__), "..", "zotero_meta.pkl")
+    try:
+        emb = get_embedding(truncated)
+    except OpenAIError as e:
+        print(f"\n⚠️ Skipping '{title}' due to API error: {e}")
+        continue
 
-    print("Loading BibTeX entries...")
-    entries = load_bibtex_entries(bib_path)
+    index.add(np.array([emb], dtype=np.float32))
+    metadata.append({
+        "title": title,
+        "year": year,
+        "authors": authors,
+        "raw": truncated
+    })
 
-    print("Building index...")
-    index, metadata = build_faiss_index(entries)
+# Save index and metadata
+faiss.write_index(index, str(INDEX_PATH))
+with open(META_PATH, "wb") as f:
+    pickle.dump(metadata, f)
 
-    print(f"Saving index to {index_path}")
-    faiss.write_index(index, index_path)
-
-    print(f"Saving metadata to {meta_path}")
-    with open(meta_path, "wb") as f:
-        pickle.dump(metadata, f)
-
-    print("Done.")
+print(f"\n✅ Index built with {len(metadata)} entries.")
+print(f"Saved to: {INDEX_PATH} and {META_PATH}")
