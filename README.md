@@ -80,3 +80,9 @@ Ask a question using your library:
 ```bash
 python scripts/query.py "What evidence supports calcium's role in cholesterol metabolism?"
 ```
+
+If you prefer a visual display run the streamlit webserver from the command line and use your browser.
+
+```bash
+streamlit run scripts/app.py
+```
