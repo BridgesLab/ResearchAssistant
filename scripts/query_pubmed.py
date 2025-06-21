@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+from utils import CHAT_MODEL_PUBMED
 
 def convert_to_pubmed_query(natural_query: str) -> str:
     """
@@ -29,7 +30,7 @@ def convert_to_pubmed_query(natural_query: str) -> str:
     prompt = template.format(natural_query=natural_query)
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=CHAT_MODEL_PUBMED,
         messages=[
             {"role": "system", "content": "You are a PubMed expert."},
             {"role": "user", "content": prompt}

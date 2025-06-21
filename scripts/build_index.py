@@ -1,82 +1,81 @@
+# build_index.py
 import os
-import pickle
-import faiss
-import bibtexparser
 import numpy as np
-from tqdm import tqdm
-from pathlib import Path
+import faiss
+from pybtex.database import parse_file
+from openai import OpenAI
 from dotenv import load_dotenv
-from openai import OpenAIError, OpenAI
-import tiktoken
+import pickle
+from tqdm import tqdm
 
-# Set up paths
-ROOT = Path(__file__).resolve().parents[1]
-BIB_PATH = ROOT / "library.bib"
-INDEX_PATH = ROOT / "zotero.index"
-META_PATH = ROOT / "zotero_meta.pkl"
-ENV_PATH = ROOT / ".env"
+# Load environment variables
+load_dotenv()
 
-# Load OpenAI key
-load_dotenv(dotenv_path=ENV_PATH)
-openai_api_key = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=openai_api_key)
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Tokenizer setup
-ENC = tiktoken.encoding_for_model("text-embedding-3-large")
+# Load model names from .env with fallback defaults
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
-def safe_truncate(text, max_tokens=6000):
-    tokens = ENC.encode(text)
-    if len(tokens) <= max_tokens:
-        return text
-    return ENC.decode(tokens[:max_tokens])
+# Paths
+BIB_FILE = "library.bib"
+INDEX_FILE = "zotero.index"
+META_FILE = "zotero_meta.pkl"
 
-def get_embedding(text):
-    resp = client.embeddings.create(
+def embed(text: str) -> list[float]:
+    """Call OpenAI embeddings API to embed a string."""
+    response = client.embeddings.create(
         input=[text],
-        model="text-embedding-3-large"
+        model=EMBEDDING_MODEL
     )
-    return resp.data[0].embedding
+    return response.data[0].embedding
 
-# Read BibTeX and extract entries
-with open(BIB_PATH, "r") as bibfile:
-    bib_db = bibtexparser.load(bibfile)
+def main():
+    # Parse bib file
+    print(f"Loading bibliography from {BIB_FILE}")
+    bib_data = parse_file(BIB_FILE)
+    entries = list(bib_data.entries.values())
+    print(f"Loaded {len(entries)} entries from {BIB_FILE}")
 
-entries = bib_db.entries
-print(f"Loaded {len(entries)} entries from library.bib")
+    # Embed first entry to get dimension
+    first_text = entries[0].fields.get("title", "") or "No title"
+    first_emb = embed(first_text)
+    dim = len(first_emb)
+    print(f"Embedding dimension detected: {dim}")
 
-# Build FAISS index
-dim = 3072  # Dimension for text-embedding-3-large
-index = faiss.IndexFlatL2(dim)
-metadata = []
+    # Create new FAISS index
+    index = faiss.IndexFlatL2(dim)
 
-for entry in tqdm(entries, desc="Embedding entries"):
-    title = entry.get("title", "Unknown Title").strip()
-    year = entry.get("year", "Unknown Year")
-    authors = entry.get("author", "Unknown Author")
-    abstract = entry.get("abstract", "")
-    note = entry.get("note", "")
+    # Metadata storage (e.g. titles, authors, year)
+    metadata = []
 
-    raw = f"Title: {title}\nAuthors: {authors}\nYear: {year}\nAbstract: {abstract}\nNotes: {note}"
-    truncated = safe_truncate(raw)
-
-    try:
-        emb = get_embedding(truncated)
-    except OpenAIError as e:
-        print(f"\n⚠️ Skipping '{title}' due to API error: {e}")
-        continue
-
-    index.add(np.array([emb], dtype=np.float32))
+    # Add first embedding
+    index.add(np.array([first_emb], dtype=np.float32))
     metadata.append({
-        "title": title,
-        "year": year,
-        "authors": authors,
-        "raw": truncated
+        "title": entries[0].fields.get("title", ""),
+        "authors": entries[0].persons.get("author", []),
+        "year": entries[0].fields.get("year", ""),
+        "id": entries[0].key
     })
 
-# Save index and metadata
-faiss.write_index(index, str(INDEX_PATH))
-with open(META_PATH, "wb") as f:
-    pickle.dump(metadata, f)
+    # Embed and add remaining entries
+    for entry in tqdm(entries[1:], desc="Embedding entries"):
+        text = entry.fields.get("title", "") or "No title"
+        emb = embed(text)
+        index.add(np.array([emb], dtype=np.float32))
+        metadata.append({
+            "title": entry.fields.get("title", ""),
+            "authors": entry.persons.get("author", []),
+            "year": entry.fields.get("year", ""),
+            "id": entry.key
+        })
 
-print(f"\n✅ Index built with {len(metadata)} entries.")
-print(f"Saved to: {INDEX_PATH} and {META_PATH}")
+    # Save FAISS index and metadata
+    faiss.write_index(index, INDEX_FILE)
+    with open(META_FILE, "wb") as f:
+        pickle.dump(metadata, f)
+
+    print(f"Index and metadata saved: {INDEX_FILE}, {META_FILE}")
+
+if __name__ == "__main__":
+    main()

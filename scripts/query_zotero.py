@@ -21,7 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-ENC = tiktoken.encoding_for_model("text-embedding-3-large")
+from utils import EMBEDDING_MODEL
+ENC = tiktoken.encoding_for_model(EMBEDDING_MODEL)
 
 # Load Zotero search prompt (optional, for explainability or further steps)
 # zotero_search_prompt = load_prompt("zotero_search.md")  # currently unused
@@ -33,7 +34,7 @@ def get_embedding(text: str) -> list[float]:
     """
     response = client.embeddings.create(
         input=[text],
-        model="text-embedding-3-large"
+        model=EMBEDDING_MODEL
     )
     return response.data[0].embedding
 

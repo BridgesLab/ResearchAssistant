@@ -8,6 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 import tiktoken
+from utils import CHAT_MODEL_SYNTHESIS
 
 # ------------------------
 # Set up project paths
@@ -48,7 +49,7 @@ ENC = tiktoken.encoding_for_model("text-embedding-3-large")
 def get_embedding(text):
     embedding = client.embeddings.create(
         input=[text],
-        model="text-embedding-3-large"
+        model=CHAT_MODEL_SYNTHESIS
     )
     return embedding.data[0].embedding
 
@@ -74,7 +75,7 @@ QUESTION:
 {query}
 """
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=CHAT_MODEL_SYNTHESIS,
         messages=[
             {"role": "system", "content": "You are a biomedical research assistant."},
             {"role": "user", "content": prompt}

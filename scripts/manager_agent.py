@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+from utils import CHAT_MODEL_SYNTHESIS
+
 def synthesize(query, zotero_results, pubmed_results):
     """
     Synthesizes results using a prompt from /prompts/synthesis.md
@@ -43,7 +45,7 @@ def synthesize(query, zotero_results, pubmed_results):
     )
 
     response = client.chat.completions.create(
-        model="gpt-4",
+        model=CHAT_MODEL_SYNTHESIS,
         messages=[
             {"role": "system", "content": "You are a biomedical research assistant."},
             {"role": "user", "content": prompt}
