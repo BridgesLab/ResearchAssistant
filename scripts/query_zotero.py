@@ -1,8 +1,8 @@
 """
 Zotero Search Agent
 
-This script loads a local FAISS index of your Zotero library and uses
-OpenAI embeddings to retrieve top-k relevant papers for a given query.
+Loads a local FAISS index of a Zotero library and retrieves the top-k
+most relevant papers based on semantic similarity.
 """
 
 import pickle
@@ -10,53 +10,71 @@ import faiss
 import numpy as np
 from pathlib import Path
 from openai import OpenAI
-import tiktoken
 from dotenv import load_dotenv
+import tiktoken
 import os
 
-# Path setup
-ROOT = Path(__file__).resolve().parents[1]
-ENV_PATH = ROOT / ".env"
-META_PATH = ROOT / "zotero_meta.pkl"
-INDEX_PATH = ROOT / "zotero.index"
+from utils import load_prompt
 
-load_dotenv(ENV_PATH)
+# Setup environment and OpenAI client
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 ENC = tiktoken.encoding_for_model("text-embedding-3-large")
 
-def get_embedding(text):
+# Load Zotero search prompt (optional, for explainability or further steps)
+# zotero_search_prompt = load_prompt("zotero_search.md")  # currently unused
+
+
+def get_embedding(text: str) -> list[float]:
     """
-    Returns the OpenAI embedding vector for a given text.
+    Gets the OpenAI embedding vector for a given text.
     """
-    return client.embeddings.create(
+    response = client.embeddings.create(
         input=[text],
         model="text-embedding-3-large"
-    ).data[0].embedding
+    )
+    return response.data[0].embedding
+
 
 def load_zotero():
     """
     Loads the FAISS index and metadata from disk.
-    
+
     Returns:
         tuple: (faiss.IndexFlatL2, metadata list)
     """
-    index = faiss.read_index(str(INDEX_PATH))
-    with open(META_PATH, "rb") as f:
+    index_path = ROOT / "zotero.index"
+    meta_path = ROOT / "zotero_meta.pkl"
+    index = faiss.read_index(str(index_path))
+    with open(meta_path, "rb") as f:
         metadata = pickle.load(f)
     return index, metadata
 
-def query_zotero_library(query, k=5):
+
+def query_zotero_library(query: str, k: int = 5) -> list[dict]:
     """
     Searches the Zotero FAISS index for the top-k most relevant entries.
 
     Args:
-        query (str): User input question
-        k (int): Number of papers to retrieve
+        query: User input question.
+        k: Number of papers to retrieve.
 
     Returns:
-        list of dict: Retrieved metadata entries
+        List of metadata dicts for the most relevant papers.
     """
     index, metadata = load_zotero()
     emb = get_embedding(query)
     D, I = index.search(np.array([emb], dtype=np.float32), k)
     return [metadata[i] for i in I[0]]
+
+
+if __name__ == "__main__":
+    import sys
+
+    query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "What is the effect of calcium on cholesterol?"
+    results = query_zotero_library(query, k=5)
+    for r in results:
+        print(f"\n📄 {r.get('title', 'Untitled')} ({r.get('year', 'n.d.')}) — {r.get('authors', 'Unknown')}")
+        print(f"{r.get('abstract', '[No abstract available]')}\n")

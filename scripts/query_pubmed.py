@@ -1,9 +1,8 @@
 """
 PubMed Search Agent
 
-This script converts a natural language query into a PubMed-compatible
-Boolean search string using GPT-4, queries PubMed via Entrez E-Utilities API,
-and returns top abstracts with metadata.
+Uses GPT-4 to convert a natural language query into a PubMed-compatible search string
+and retrieves top article metadata from PubMed via E-utilities.
 """
 
 import requests
@@ -13,46 +12,44 @@ from dotenv import load_dotenv
 from pathlib import Path
 import os
 
-# Setup
+from utils import load_prompt
+
+# Setup environment and OpenAI client
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-def convert_to_pubmed_query(natural_query):
+
+def convert_to_pubmed_query(natural_query: str) -> str:
     """
-    Uses GPT-4 to convert a natural language query into a PubMed Boolean search string.
-
-    Args:
-        natural_query (str): User's natural language question
-
-    Returns:
-        str: PubMed-compatible search string
+    Converts a natural language question to a PubMed-compatible search string
+    using a prompt loaded from /prompts/pubmed_search.md.
     """
-    prompt = f"""You are a biomedical researcher. Convert the following natural language question into a PubMed-compatible search string using Boolean operators and MeSH terms where appropriate.
-
-QUESTION: "{natural_query}"
-
-Search string:"""
+    template = load_prompt("pubmed_search.md")
+    prompt = template.format(natural_query=natural_query)
 
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a PubMed expert."},
             {"role": "user", "content": prompt}
-        ]
+        ],
+        temperature=0.0,
+        max_tokens=200,
     )
     return response.choices[0].message.content.strip()
 
-def query_pubmed(natural_query, max_results=5):
+
+def query_pubmed(natural_query: str, max_results: int = 5) -> list[dict]:
     """
-    Queries PubMed using a GPT-generated search string and returns article metadata.
+    Queries PubMed with a GPT-generated search string and returns metadata of articles.
 
     Args:
-        natural_query (str): Natural language query
-        max_results (int): Max number of articles to fetch
+        natural_query: User’s question in natural language.
+        max_results: Number of articles to fetch.
 
     Returns:
-        list of dict: Articles with title, abstract, authors, year, and raw text
+        List of article metadata dicts with keys: title, abstract, authors, year, raw.
     """
     search_term = convert_to_pubmed_query(natural_query)
     print(f"🔍 PubMed search term: {search_term}")
@@ -60,7 +57,7 @@ def query_pubmed(natural_query, max_results=5):
     search_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
     fetch_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
-    # Step 1: Search for article IDs
+    # Step 1: Search article IDs
     search_params = {
         "db": "pubmed",
         "term": search_term,
@@ -87,7 +84,7 @@ def query_pubmed(natural_query, max_results=5):
     results = []
     for article in root.findall(".//PubmedArticle"):
         title = article.findtext(".//ArticleTitle", default="No title")
-        abstract = article.findtext(".//AbstractText", default="No abstract")
+        abstract = article.findtext(".//AbstractText", default="[No abstract available]")
         authors = [
             f"{a.findtext('ForeName', '')} {a.findtext('LastName', '')}".strip()
             for a in article.findall(".//Author")
@@ -102,8 +99,10 @@ def query_pubmed(natural_query, max_results=5):
         })
     return results
 
+
 if __name__ == "__main__":
     import sys
+
     query = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "Does calcium affect cholesterol?"
     papers = query_pubmed(query, max_results=5)
     for p in papers:
