@@ -35,7 +35,10 @@ def synthesize(query, zotero_results, pubmed_results):
     """
     def format_docs(docs):
         return "\n\n".join([
-            f"Title: {d['title']}\nAuthors: {d['authors']}\nYear: {d['year']}\nAbstract: {d['abstract']}"
+            f"Title: {d.get('title', 'Untitled')}\n"
+            f"Authors: {d.get('authors', 'Unknown')}\n"
+            f"Year: {d.get('year', 'n.d.')}\n"
+            f"Abstract: {d.get('abstract', '[No abstract available]')}"
             for d in docs
         ])
 
