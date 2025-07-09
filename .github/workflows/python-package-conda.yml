@@ -1,4 +1,4 @@
-name: Install abd Test Python Package using Conda
+name: Install and Test Python Package using Conda
 
 on: [push]
 
