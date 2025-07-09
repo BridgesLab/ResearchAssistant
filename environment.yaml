@@ -6,10 +6,12 @@ channels:
 dependencies:
   - python=3.10
   - numpy
+  - biopython
+  - faiss-cpu
+  - yagmail  # For Gmail-based SMTP (easy email sending)
   - pip
   - pip:
       - bibtexparser
-      - faiss-cpu
       - tiktoken
       - openai>=1.0.0
       - tqdm
