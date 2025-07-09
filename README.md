@@ -75,7 +75,7 @@ EMAIL_TO=your.email@example.com
 ```
 
 ### 5. Build the Zotero index
-Run this once after setup, or whenever your library.bib is updated:
+Run this once after setup.
 
 ```bash
 python scripts/build_index.py
@@ -83,8 +83,15 @@ python scripts/build_index.py
 
 This creates:
 
-zotero.index — FAISS vector index of embedded papers
-zotero_meta.pkl — metadata used for retrieval and synthesis
+- **zotero.index** — FAISS vector index of embedded papers
+- **zotero_meta.pkl** — metadata used for retrieval and synthesis
+
+To update your index run this (or set up a cron job to do it regularly)
+
+
+```bash
+python scripts/update_index.py
+```
 
 ## Running a Query (Multi-Agent Mode)
 Use the manager agent to query both Zotero and PubMed, and get a synthesized answer:
