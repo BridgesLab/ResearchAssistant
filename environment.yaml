@@ -5,6 +5,7 @@ channels:
 
 dependencies:
   - python=3.10
+  - numpy
   - pip
   - pip:
       - bibtexparser
@@ -15,3 +16,4 @@ dependencies:
       - streamlit
       - python-dotenv
       - watchdog
+      - pybtex
