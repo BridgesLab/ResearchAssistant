@@ -198,3 +198,4 @@ cython_debug/
 library.bib
 zotero.index
 zotero_meta.pkl
+queries.db
