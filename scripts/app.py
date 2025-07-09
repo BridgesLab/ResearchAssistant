@@ -1,130 +1,78 @@
 import os
-import pickle
-import faiss
-import numpy as np
-import streamlit as st
-from time import sleep
+import sys
 from pathlib import Path
+import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
-import tiktoken
-from utils import CHAT_MODEL_SYNTHESIS
 
-# ------------------------
-# Set up project paths
-# ------------------------
+# Add scripts folder to path so we can import manager_agent
 ROOT = Path(__file__).resolve().parents[1]
-INDEX_PATH = ROOT / "zotero.index"
-META_PATH = ROOT / "zotero_meta.pkl"
-ENV_PATH = ROOT / ".env"
+SCRIPTS_DIR = ROOT / "scripts"
+sys.path.append(str(SCRIPTS_DIR))
 
-# ------------------------
-# Streamlit page config
-# ------------------------
-st.set_page_config(page_title="Zotero‑RAG Search")
+from manager_agent import query_zotero_library, query_pubmed, synthesize
 
-# ------------------------
-# Load API key from .env
-# ------------------------
-load_dotenv(dotenv_path=ENV_PATH)
+# Load environment variables for OpenAI key
+load_dotenv(ROOT / ".env")
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ------------------------
-# Load FAISS index and metadata
-# ------------------------
-@st.cache_resource
-def load_index_meta():
-    idx = faiss.read_index(str(INDEX_PATH))
-    with open(META_PATH, "rb") as f:
-        meta = pickle.load(f)
-    return idx, meta
+# Streamlit page config
+st.set_page_config(page_title="Research Assistant — Multi-Agent Mode")
 
-idx, metadata = load_index_meta()
-
-# ------------------------
-# Embedding function
-# ------------------------
-ENC = tiktoken.encoding_for_model("text-embedding-3-large")
-
-def get_embedding(text):
-    embedding = client.embeddings.create(
-        input=[text],
-        model=CHAT_MODEL_SYNTHESIS
-    )
-    return embedding.data[0].embedding
-
-# ------------------------
-# Search function
-# ------------------------
-def search(query, k=5):
-    emb = get_embedding(query)
-    D, I = idx.search(np.array([emb], dtype=np.float32), k)
-    return [metadata[i] for i in I[0]]
-
-# ------------------------
-# Query GPT-4 with paper context
-# ------------------------
-def ask_gpt(query, papers):
-    context = "\n\n".join([p["raw"] for p in papers])
-    prompt = f"""You are a research assistant. Based on the following papers, answer the user's question with evidence-based reasoning.
-
-PAPERS:
-{context}
-
-QUESTION:
-{query}
-"""
-    response = client.chat.completions.create(
-        model=CHAT_MODEL_SYNTHESIS,
-        messages=[
-            {"role": "system", "content": "You are a biomedical research assistant."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
-
-# ------------------------
-# UI: Branding and styles
-# ------------------------
+# Custom styling (University of Michigan colors + fonts)
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;700&display=swap');
-    html, body, [class*="css"]  {
+    html, body, [class*="css"] {
       background-color: #FFFFFF;
       color: #00274C;
       font-family: 'Nunito Sans', sans-serif;
     }
-    .title { color: #FFCB05; font-weight:700; font-size:2.5rem; }
+    .title { color: #FFCB05; font-weight:700; font-size:2.5rem; margin-bottom:1rem; }
     .paper-title { font-weight:700; font-size:1.1rem; }
+    a { color: #00274C; text-decoration: none; }
+    a:hover { text-decoration: underline; }
     </style>
-    """, unsafe_allow_html=True
+    """,
+    unsafe_allow_html=True,
 )
 
-st.markdown('<div class="title">Research Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="title">Research Assistant — Multi-Agent Mode</div>', unsafe_allow_html=True)
 
-# ------------------------
-# Main interaction
-# ------------------------
 query = st.text_input("Enter your research question", "")
 
-if st.button("Search"):
-    with st.spinner("🔍 Searching your Zotero library..."):
-        papers = search(query)
-        sleep(0.5)
-    with st.spinner("🤖 Querying GPT-4 for an answer..."):
-        answer = ask_gpt(query, papers)
-        sleep(0.5)
+if st.button("Run Multi-Agent Query") and query.strip():
+    with st.spinner("🔍 Querying Zotero library..."):
+        zotero_results = query_zotero_library(query, k=5)
 
-    st.markdown("### 🧠 GPT-4 Answer")
+    with st.spinner("🔎 Querying PubMed..."):
+        pubmed_results = query_pubmed(query, max_results=5)
+
+    with st.spinner("🧠 Synthesizing results with GPT-4..."):
+        answer = synthesize(query, zotero_results, pubmed_results)
+
+    st.markdown("### 🧠 Synthesized Answer")
     st.write(answer)
 
-    st.markdown("### 📚 Retrieved Papers")
-    for p in papers:
-        title = p["title"]
-        year = p["year"]
-        authors = p["authors"]
+    st.markdown("### 📚 Zotero Results")
+    for doc in zotero_results:
+        url = doc.get("url", "#")
+        title = doc.get("title", "Untitled")
+        year = doc.get("year", "n.d.")
+        authors = doc.get("authors", "Unknown")
         st.markdown(
-            f"- <span class='paper-title'><a href='https://scholar.google.com/scholar?q={title}' target='_blank'>{title}</a></span> ({year}) – {authors}",
-            unsafe_allow_html=True
+            f"- <a href='{url}' target='_blank' class='paper-title'>{title}</a> ({year}) – {authors}",
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("### 🔬 PubMed Results")
+    for doc in pubmed_results:
+        url = doc.get("url", "#")
+        title = doc.get("title", "Untitled")
+        year = doc.get("year", "n.d.")
+        authors = doc.get("authors", "Unknown")
+        st.markdown(
+            f"- <a href='{url}' target='_blank' class='paper-title'>{title}</a> ({year}) – {authors}",
+            unsafe_allow_html=True,
         )
