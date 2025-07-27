@@ -23,6 +23,7 @@ Your response should:
 - Clearly distinguish between evidence from Zotero and new PubMed findings.
 - Identify any papers found via PubMed that are not already in Zotero.
 - Recommend whether any new PubMed papers should be added to Zotero.
+- Indicate any papers in the Zotero library that might be relevant but are missing abstracts.
 
 # Guardrails
 - Do not invent citations or speculate beyond the provided abstracts.
