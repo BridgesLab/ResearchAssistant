@@ -41,16 +41,11 @@ def convert_to_pubmed_query(natural_query: str) -> str:
     return response.choices[0].message.content.strip()
 
 
+# Replace your line 69 and surrounding code with this:
+
 def query_pubmed(natural_query: str, max_results: int = 5) -> list[dict]:
     """
     Queries PubMed with a GPT-generated search string and returns metadata of articles.
-
-    Args:
-        natural_query: User’s question in natural language.
-        max_results: Number of articles to fetch.
-
-    Returns:
-        List of article metadata dicts with keys: title, abstract, authors, year, raw.
     """
     search_term = convert_to_pubmed_query(natural_query)
     print(f"🔍 PubMed search term: {search_term}")
@@ -65,23 +60,72 @@ def query_pubmed(natural_query: str, max_results: int = 5) -> list[dict]:
         "retmode": "xml",
         "retmax": max_results,
     }
-    search_resp = requests.get(search_url, params=search_params)
-    ids = ET.fromstring(search_resp.content).findall(".//Id")
-    id_list = [id.text for id in ids]
+    
+    try:
+        search_resp = requests.get(search_url, params=search_params, timeout=30)
+        search_resp.raise_for_status()  # Raises HTTPError for bad status codes
+        
+        # Check if response looks like HTML (server error)
+        content = search_resp.content.decode('utf-8', errors='ignore')
+        if content.strip().lower().startswith('<html'):
+            raise Exception("PubMed server returned HTML error page - servers may be down")
+        
+        # Try to parse XML
+        try:
+            search_root = ET.fromstring(search_resp.content)
+        except ET.ParseError as e:
+            # Print the problematic content for debugging
+            print(f"❌ XML Parse Error: {e}")
+            print(f"Response content preview: {content[:500]}...")
+            raise Exception(f"PubMed returned malformed XML - servers may be experiencing issues: {e}")
+        
+        ids = search_root.findall(".//Id")
+        id_list = [id.text for id in ids]
+        
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Network error accessing PubMed: {e}")
+    except Exception as e:
+        if "server" in str(e).lower() or "html" in str(e).lower():
+            raise Exception(f"PubMed server error: {e}")
+        else:
+            raise Exception(f"PubMed query error: {e}")
 
     if not id_list:
         return []
 
-    # Step 2: Fetch article metadata
+    # Step 2: Fetch article metadata - add similar error handling
     fetch_params = {
         "db": "pubmed",
         "id": ",".join(id_list),
         "retmode": "xml",
         "rettype": "abstract",
     }
-    fetch_resp = requests.get(fetch_url, params=fetch_params)
-    root = ET.fromstring(fetch_resp.content)
+    
+    try:
+        fetch_resp = requests.get(fetch_url, params=fetch_params, timeout=30)
+        fetch_resp.raise_for_status()
+        
+        # Check for HTML response
+        content = fetch_resp.content.decode('utf-8', errors='ignore')
+        if content.strip().lower().startswith('<html'):
+            raise Exception("PubMed server returned HTML error page during fetch - servers may be down")
+        
+        try:
+            root = ET.fromstring(fetch_resp.content)
+        except ET.ParseError as e:
+            print(f"❌ XML Parse Error during fetch: {e}")
+            print(f"Response content preview: {content[:500]}...")
+            raise Exception(f"PubMed returned malformed XML during fetch: {e}")
+            
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Network error fetching from PubMed: {e}")
+    except Exception as e:
+        if "server" in str(e).lower() or "html" in str(e).lower():
+            raise Exception(f"PubMed server error during fetch: {e}")
+        else:
+            raise Exception(f"PubMed fetch error: {e}")
 
+    # Rest of your existing code for processing results...
     results = []
     for article in root.findall(".//PubmedArticle"):
         title = article.findtext(".//ArticleTitle", default="No title")

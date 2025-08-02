@@ -1,125 +1,131 @@
+#!/usr/bin/env python3
+"""
+watch_pubmed.py
+
+Runs a biweekly PubMed check for saved queries in queries.db.
+Sends an email summary with any new results or a status note.
+"""
+
 import os
-import json
 import sqlite3
+import logging
 from datetime import datetime
-from dotenv import load_dotenv
-from Bio import Entrez
-
-load_dotenv()
-
 from pathlib import Path
+from dotenv import load_dotenv
+import smtplib
+from email.mime.text import MIMEText
 
+from query_pubmed import query_pubmed  # uses your PubMed agent
+
+# ------------------------
+# Setup paths and logging
+# ------------------------
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "queries.db"
+ENV_PATH = ROOT / ".env"
 
-ENTREZ_EMAIL = os.getenv("EMAIL_USER")  # Required by NCBI
-CACHE_FILE = "pubmed_cache.json"
-MAX_RESULTS = 10  # Limit per search term
+load_dotenv(ENV_PATH)
 
-Entrez.email = ENTREZ_EMAIL
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as f:
-            return json.load(f)
-    return {}
+logging.info(f"Starting PubMed watcher at {datetime.now()}")
+logging.info(f"Using database at {DB_PATH}")
 
-def save_cache(cache):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(cache, f)
 
-def get_recent_queries(db_path=DB_PATH, limit=20):
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
+print("DEBUG: Loading .env from:", ROOT / ".env")
+print("DEBUG: EMAIL_FROM =", os.getenv("EMAIL_FROM"))
+print("DEBUG: EMAIL_TO =", os.getenv("EMAIL_TO"))
+print("DEBUG: EMAIL_APP_PASSWORD =", os.getenv("EMAIL_APP_PASSWORD"))
+
+# ------------------------
+# Email configuration (from .env)
+# ------------------------
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("EMAIL_APP_PASSWORD")
+TO_EMAIL = os.getenv("TO_EMAIL", SMTP_USER)
+
+if not SMTP_USER or not SMTP_PASS:
+    logging.error("❌ Email credentials are missing in .env")
+    exit(1)
+
+
+# ------------------------
+# Email function
+# ------------------------
+def send_email_summary(results, note=None):
     """
-    Fetch distinct recent queries from the SQLite DB.
+    Send an email with PubMed results or a status update.
     """
-    if not os.path.exists(db_path):
-        print(f"Warning: {db_path} not found. No queries loaded.")
-        return []
+    if results:
+        body = "Here are the new PubMed results:\n\n"
+        for r in results:
+            title = r.get("title", "Untitled")
+            link = r.get("link", "")
+            body += f"- {title}\n  {link}\n\n"
+    else:
+        body = note or "No new results this cycle."
 
-    conn = sqlite3.connect(db_path)
-    c = conn.cursor()
-    c.execute("""
-        SELECT DISTINCT query_text FROM query_log
-        ORDER BY timestamp DESC
-        LIMIT ?
-    """, (limit,))
-    rows = c.fetchall()
+    msg = MIMEText(body)
+    msg["Subject"] = "PubMed Watcher Update"
+    msg["From"] = SMTP_USER
+    msg["To"] = TO_EMAIL
+
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USER, SMTP_PASS)
+        server.send_message(msg)
+
+    logging.info(f"📧 Email sent to {TO_EMAIL}")
+
+
+# ------------------------
+# Database access
+# ------------------------
+def get_saved_queries():
+    """Retrieve distinct saved queries from queries.db."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("SELECT DISTINCT query FROM query_log")
+    rows = cur.fetchall()
     conn.close()
     return [r[0] for r in rows]
 
-def search_pubmed(term):
-    """
-    Search PubMed for the given term, returning a list of PMIDs.
-    """
-    try:
-        handle = Entrez.esearch(
-            db="pubmed",
-            term=term,
-            retmax=MAX_RESULTS,
-            sort="most+recent"
-        )
-        record = Entrez.read(handle)
-        handle.close()
-        return record["IdList"]
-    except Exception as e:
-        print(f"Error searching PubMed for '{term}': {e}")
-        return []
 
-def fetch_details(pmid_list):
-    """
-    Fetch detailed Medline data for a list of PMIDs.
-    """
-    if not pmid_list:
-        return ""
+# ------------------------
+# Main watcher logic
+# ------------------------
+def run_biweekly_pubmed_check():
+    queries = get_saved_queries()
+    logging.info(f"Found {len(queries)} saved queries")
 
-    try:
-        handle = Entrez.efetch(
-            db="pubmed",
-            id=pmid_list,
-            rettype="medline",
-            retmode="text"
-        )
-        result = handle.read()
-        handle.close()
-        return result
-    except Exception as e:
-        print(f"Error fetching details from PubMed: {e}")
-        return ""
+    all_new_results = []
+    for q in queries:
+        logging.info(f"🔎 Checking PubMed for: {q}")
+        results = query_pubmed(q, max_results=5)
+        # In production, filter only "new" results if desired
+        all_new_results.extend(results)
 
-def main():
-    print(f"📅 PubMed Watcher started at {datetime.now()}")
-    cache = load_cache()
-    new_items = []
-
-    search_terms = get_recent_queries()
-    if not search_terms:
-        print("No recent queries found to search PubMed.")
-        return
-
-    for term in search_terms:
-        print(f"🔍 Searching PubMed for: {term}")
-        ids = search_pubmed(term)
-        seen_ids = set(cache.get(term, []))
-        new_ids = [pid for pid in ids if pid not in seen_ids]
-
-        if new_ids:
-            print(f"🆕 Found {len(new_ids)} new results for: {term}")
-            details = fetch_details(new_ids)
-            new_items.append((term, new_ids, details))
-            cache[term] = list(set(cache.get(term, []) + new_ids))
-        else:
-            print(f"✅ No new results for: {term}")
-
-    save_cache(cache)
-
-    if new_items:
-        print("\n=== New PubMed Articles Found ===\n")
-        for term, ids, details in new_items:
-            print(f"🔹 Search Term: {term}")
-            print(details)
-            print("----")
+    if all_new_results:
+        logging.info(f"Found {len(all_new_results)} total results")
+        send_email_summary(all_new_results)
     else:
-        print("📭 No new PubMed articles found this time.")
+        logging.info("No new PubMed results found. Sending status email...")
+        send_email_summary([], note="No new results this cycle.")
 
+
+# ------------------------
+# Entrypoint
+# ------------------------
 if __name__ == "__main__":
-    main()
+    try:
+        run_biweekly_pubmed_check()
+    except Exception as e:
+        logging.exception("❌ Watcher run failed")
