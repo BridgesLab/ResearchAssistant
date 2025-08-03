@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
 sys.path.append(str(SCRIPTS_DIR))
 
-from manager_agent import query_zotero_library, query_pubmed, synthesize
+from manager_agent import query_zotero_library, query_pubmed, synthesize, log_query
 
 # Load environment variables for OpenAI key
 load_dotenv(ROOT / ".env")
@@ -43,6 +43,9 @@ st.markdown('<div class="title">Research Assistant — Multi-Agent Mode</div>', 
 query = st.text_input("Enter your research question", "")
 
 if st.button("Run Multi-Agent Query") and query.strip():
+    query_id = log_query(query)  # Reuse the DRY logging function
+    st.info(f"✅ Logged query to database with ID {query_id}")
+
     with st.spinner("🔍 Querying Zotero library..."):
         zotero_results = query_zotero_library(query, k=5)
 

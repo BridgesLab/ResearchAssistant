@@ -113,6 +113,12 @@ Periodically run the watcher script to search PubMed for new results related to 
 python scripts/watch_pubmed.py
 ```
 
+Or do do this manually checking recent papers run this to see if there are any new publications relevant to your logged queries (in this case in the last 60 days).
+
+```bash
+python scripts/find_new_papers.py --days 60
+``` 
+
 Automate this with cron or task scheduler to run weekly or biweekly.
 
 ## 🌐 Optional: Streamlit UI
