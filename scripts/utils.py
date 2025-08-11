@@ -10,6 +10,19 @@ def load_prompt(name):
     with open(path, "r") as f:
         return f.read()
     
+def deduplicate_papers(papers):
+    """
+    Deduplicate list of paper dicts by exact title match (case insensitive).
+    Returns list with duplicates removed, preserving order.
+    """
+    seen_titles = set()
+    unique_papers = []
+    for paper in papers:
+        title = paper.get("title", "").lower()
+        if title and title not in seen_titles:
+            seen_titles.add(title)
+            unique_papers.append(paper)
+    return unique_papers
 
 import os
 

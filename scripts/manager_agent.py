@@ -17,7 +17,8 @@ import sqlite3
 from datetime import datetime
 
 from query_zotero import query_zotero_library
-from query_pubmed import query_pubmed
+from query_pubmed import query_pubmed, iterative_pubmed_search
+
 from utils import load_prompt
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +48,6 @@ def log_query(query: str, db_path=DB_PATH):
     conn.commit()
     conn.close()
     return query_id
-
 
 def save_results(query_id: int, source: str, content: str, db_path=DB_PATH):
     """
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     save_results(query_id, "zotero", zotero_text)
 
     print("🔎 Querying PubMed...")
-    pubmed_results = query_pubmed(query, max_results=5)
+    pubmed_results = iterative_pubmed_search(query, max_results=5)
     pubmed_text = "\n\n".join([
         f"Title: {d.get('title', 'Untitled')}\n"
         f"Authors: {d.get('authors', 'Unknown')}\n"

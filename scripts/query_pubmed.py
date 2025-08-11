@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 import os
 
-from utils import load_prompt
+from utils import load_prompt, deduplicate_papers
 
 # Setup environment and OpenAI client
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +99,59 @@ def query_pubmed(natural_query: str, max_results: int = 5) -> list[dict]:
             "raw": f"Title: {title}\nAuthors: {', '.join(authors)}\nYear: {year}\nAbstract: {abstract}"
         })
     return results
+
+def iterative_pubmed_search(natural_query: str, max_results: int = 5, top_n_for_refinement: int = 5) -> list[dict]:
+    """
+    Expands the PubMed search by generating alternate Boolean queries from the initial results.
+    """
+    # Step 1: Initial search
+    initial_results = query_pubmed(natural_query, max_results=top_n_for_refinement)
+
+    if not initial_results:
+        return []
+
+    # Step 2: Build refinement prompt
+    paper_summaries = "\n\n".join(
+        f"Title: {doc['title']}\nAbstract: {doc.get('abstract', '[No abstract]')}"
+        for doc in initial_results
+    )
+
+    refinement_prompt = f"""
+    The user asked: {natural_query}
+
+    Here are the top PubMed results:
+    {paper_summaries}
+
+    Suggest up to 3 improved or alternate PubMed Boolean queries
+    that could capture additional relevant papers not in this list.
+    Only output the Boolean queries, one per line.
+    """
+
+    # Step 3: Get refined queries from GPT
+    response = client.chat.completions.create(
+        model=CHAT_MODEL_PUBMED,
+        messages=[
+            {"role": "system", "content": "You are a PubMed search expert."},
+            {"role": "user", "content": refinement_prompt}
+        ],
+        temperature=0.0,
+        max_tokens=300,
+    )
+
+    refined_queries = [
+        q.strip() for q in response.choices[0].message.content.split("\n") if q.strip()
+    ]
+
+    # Step 4: Run each refined query
+    all_results = initial_results.copy()
+    for q in refined_queries:
+        more_results = query_pubmed(q, max_results=max_results)
+        all_results.extend(more_results)
+
+    # Step 5: Deduplicate by title/DOI
+    all_results = deduplicate_papers(all_results)
+
+    return all_results
 
 
 if __name__ == "__main__":
