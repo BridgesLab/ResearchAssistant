@@ -9,6 +9,7 @@ dependencies:
   - biopython
   - faiss-cpu
   - yagmail  # For Gmail-based SMTP (easy email sending)
+  - pytest
   - pip
   - pip:
       - bibtexparser
