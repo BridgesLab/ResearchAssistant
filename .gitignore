@@ -200,3 +200,4 @@ zotero.index
 zotero_meta.pkl
 queries.db
 .DS_Store
+library_cleaned.bib
